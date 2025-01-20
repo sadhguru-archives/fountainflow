@@ -24,6 +24,8 @@ pub struct Encoder {
     degree_generator: DegreeGenerator,
     /// Pre-calculated intermediate symbols
     intermediate_symbols: Option<Vec<Vec<u8>>>,
+    /// Current repair symbol sequence number
+    current_sequence: u32,
 }
 
 impl Encoder {
@@ -53,6 +55,7 @@ impl Encoder {
             symbol_size,
             degree_generator: DegreeGenerator::new(k),
             intermediate_symbols: None,
+            current_sequence: 0,
         })
     }
 
@@ -89,7 +92,10 @@ impl Encoder {
         }
 
         let intermediates = self.intermediate_symbols.as_ref().unwrap();
-        let (degree, a, b) = self.degree_generator.generate_triple(self.k, 0);
+        let Some((degree, a, b)) = self.degree_generator.generate_triple(self.k, self.current_sequence) else {
+            return Err(EncoderError::InvalidSourceLength);
+        };
+        self.current_sequence += 1;
         
         // Implement LT encoding as specified in Section 5.4.4.3
         let mut result = vec![0; self.symbol_size];
@@ -152,12 +158,13 @@ mod tests {
 
     #[test]
     fn test_repair_symbol_generation() {
-        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
-        let mut encoder = Encoder::new(&data, 4).unwrap();
+        // Use enough data to ensure we have at least 4 blocks (minimum required by RFC 5053)
+        let data = vec![1u8; 32];
+        let mut encoder = Encoder::new(&data, 8).unwrap();
 
         let repair = encoder.next_repair_symbol();
         assert!(repair.is_ok());
-        assert_eq!(repair.unwrap().len(), 4);
+        assert_eq!(repair.unwrap().len(), 8); // Should match the symbol_size
     }
 
     #[test]

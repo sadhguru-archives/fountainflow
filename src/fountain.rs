@@ -1,6 +1,5 @@
 //! Implementation of the fountain code algorithm based on RFC 5053 (Raptor codes)
 
-use rand::Rng;
 use thiserror::Error;
 use crate::distribution::DegreeGenerator;
 

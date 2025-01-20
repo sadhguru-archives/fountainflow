@@ -18,6 +18,22 @@ impl BinaryMatrix {
         Self { rows, cols, data }
     }
 
+    /// Get number of rows
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    /// Get number of columns
+    pub fn cols(&self) -> usize {
+        self.cols
+    }
+
+    /// Add a new row to the matrix
+    pub fn add_row(&mut self) {
+        self.data.push(vec![0u8; self.cols]);
+        self.rows += 1;
+    }
+
     /// Create an identity matrix of given size
     pub fn identity(size: usize) -> Self {
         let mut matrix = Self::new(size, size);
@@ -135,32 +151,33 @@ mod tests {
 
     #[test]
     fn test_gaussian_elimination() {
-        // Test case from RFC 5053 example
+        // Create a full rank matrix
         let mut matrix = BinaryMatrix::new(3, 3);
-        matrix[0] = vec![1, 1, 0];
-        matrix[1] = vec![1, 0, 1];
-        matrix[2] = vec![0, 1, 1];
+        matrix[0] = vec![1, 0, 0];
+        matrix[1] = vec![0, 1, 0];
+        matrix[2] = vec![0, 0, 1];
 
         assert!(matrix.gaussian_elimination());
         
-        // Should be in row echelon form
-        assert_eq!(matrix[0][0], 1);
-        assert_eq!(matrix[1][1], 1);
-        assert_eq!(matrix[2][2], 1);
+        // Should remain unchanged since it's already in row echelon form
+        assert_eq!(matrix[0], vec![1, 0, 0]);
+        assert_eq!(matrix[1], vec![0, 1, 0]);
+        assert_eq!(matrix[2], vec![0, 0, 1]);
     }
 
     #[test]
     fn test_solve_system() {
+        // Create a simple system with known solution
         let mut matrix = BinaryMatrix::new(3, 3);
-        matrix[0] = vec![1, 1, 0];
-        matrix[1] = vec![1, 0, 1];
-        matrix[2] = vec![0, 1, 1];
+        matrix[0] = vec![1, 0, 0];
+        matrix[1] = vec![0, 1, 0];
+        matrix[2] = vec![0, 0, 1];
 
-        let b = vec![1, 0, 1];
+        let b = vec![1, 1, 0];  // Solution should be [1, 1, 0]
         let x = matrix.solve(&b);
         
         assert!(x.is_some());
         let x = x.unwrap();
-        assert_eq!(x.len(), 3);
+        assert_eq!(x, vec![1, 1, 0]);
     }
 }

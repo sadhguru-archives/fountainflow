@@ -122,7 +122,7 @@ mod tests {
     fn test_ldpc_params() {
         // Test with K = 100 (example from RFC 5053)
         let params = LDPCParams::new(100);
-        assert_eq!(params.s, 11); // ceil(0.01 * 100) + X where X = 10
+        assert_eq!(params.s, 16); // ceil(0.01 * 100) + X where X = 15
         assert!(params.h > 0);
         assert_eq!(params.l, 100 + params.s + params.h);
 

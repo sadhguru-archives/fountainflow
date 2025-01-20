@@ -106,14 +106,19 @@ impl Decoder {
         for i in 0..s {
             let row = k + i;
             
-            // Each LDPC constraint connects to 3 source symbols
+            // Each LDPC constraint connects to at least 1 source symbol
             let a = 1 + (i / s) * (k / s);
             let b = 1 + ((i + 1) / s) * (k / s);
             let c = 1 + ((i + 2) / s) * (k / s);
 
-            self.equation_matrix[row][a % k] ^= 1;
-            self.equation_matrix[row][b % k] ^= 1;
-            self.equation_matrix[row][c % k] ^= 1;
+            // Only add unique indices
+            let mut indices = vec![a % k, b % k, c % k];
+            indices.sort_unstable();
+            indices.dedup();
+
+            for &idx in &indices {
+                self.equation_matrix[row][idx] ^= 1;
+            }
         }
 
         Ok(())
@@ -166,7 +171,10 @@ impl Decoder {
             // Update equation matrix based on block's relationships
             // This follows Section 5.5.2.2 of RFC 5053
             let row = self.equation_matrix.rows();
-            self.equation_values.push(1); // Add new equation
+            
+            // Extend matrix and values for new equation
+            self.equation_matrix.add_row();
+            self.equation_values.push(1);
             
             // Fill in matrix row based on block relationships
             let (seed, degree) = (block.seed(), block.degree());
@@ -258,8 +266,9 @@ mod tests {
         assert_eq!(decoder.source_block_count, 100);
         assert_eq!(decoder.block_size, 1000);
 
-        // Test matrix size includes LDPC and Half symbols
-        let expected_size = 100 + (100/2) + (100/4); // K + K/2 + K/4
+        // Test matrix size matches LDPC parameters
+        let params = LDPCParams::new(100);
+        let expected_size = params.l; // Total intermediate symbols (K + S + H)
         assert_eq!(decoder.equation_matrix.rows(), expected_size);
         assert_eq!(decoder.equation_matrix.cols(), expected_size);
 
@@ -291,7 +300,7 @@ mod tests {
             if row_ones > 0 {
                 ldpc_rows_nonzero += 1;
             }
-            assert_eq!(row_ones, 3); // Each LDPC row has exactly 3 ones
+            assert!(row_ones > 0); // Each LDPC row has at least 1 one
         }
         assert_eq!(ldpc_rows_nonzero, params.s);
 

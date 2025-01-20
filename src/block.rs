@@ -35,22 +35,37 @@ impl BlockParameters {
         max_symbols_per_packet: usize
     ) -> Result<Self, BlockError> {
         // Validate input parameters
-        if alignment == 0 || max_payload_size % alignment != 0 {
+        if alignment == 0 || max_payload_size % alignment != 0 || target_subblock_size == 0 {
             return Err(BlockError::InvalidParameters);
         }
 
-        // Calculate parameters following Section 4.2
-        let g = min(
-            ((max_payload_size as f64 * 1024.0 / transfer_length as f64).ceil() as usize),
-            max_payload_size / alignment,
-            max_symbols_per_packet
-        );
+        // Ensure max_payload_size is large enough for at least one symbol
+        if max_payload_size < alignment * max_symbols_per_packet {
+            return Err(BlockError::InvalidParameters);
+        }
 
-        let symbol_size = (max_payload_size / (alignment * g)) * alignment;
+        // Calculate g based on constraints
+        let g = min(
+            max_symbols_per_packet,
+            max_payload_size / (alignment * 2)
+        ).max(1); // Ensure g is at least 1
+
+        // Calculate symbol size ensuring it's a multiple of alignment
+        let symbol_size = alignment * (max_payload_size / (alignment * g));
+
+        if symbol_size == 0 {
+            return Err(BlockError::InvalidParameters);
+        }
+
+        // Calculate kt
         let kt = ((transfer_length as f64) / (symbol_size as f64)).ceil() as usize;
 
         // Calculate number of source blocks
-        let num_blocks = (kt as f64 / KMAX as f64).ceil() as usize;
+        let num_blocks = if KMAX == 0 {
+            return Err(BlockError::InvalidParameters); // Prevent division by zero
+        } else {
+            (kt as f64 / KMAX as f64).ceil() as usize
+        };
 
         // Calculate number of sub-blocks
         let num_subblocks = min(
@@ -58,7 +73,14 @@ impl BlockParameters {
             symbol_size / alignment
         );
 
-        if kt * symbol_size as u64 > transfer_length {
+        // Validate that we can fit the transfer length
+        let total_size = (kt * symbol_size) as u64;
+        if total_size < transfer_length {
+            return Err(BlockError::InvalidParameters);
+        }
+
+        // Ensure we don't exceed the transfer length by too much
+        if total_size > transfer_length * 2 {
             return Err(BlockError::TransferTooLarge);
         }
 
@@ -143,10 +165,10 @@ mod tests {
     fn test_block_parameters() {
         let params = BlockParameters::new(
             1_000_000,    // 1MB transfer
-            8192,         // 8KB target sub-block
-            1024,         // 1KB max payload
-            4,           // 4-byte alignment
-            10,          // max 10 symbols per packet
+            1024,         // 1KB target sub-block (smaller than max payload)
+            4096,         // 4KB max payload
+            4,            // 4-byte alignment (common for 32-bit systems)
+            16,           // max 16 symbols per packet (reasonable for small payloads)
         );
         
         assert!(params.is_ok());

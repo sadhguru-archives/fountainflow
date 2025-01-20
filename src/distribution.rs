@@ -1,9 +1,9 @@
 //! Implementation of degree distributions for Raptor codes
 //! Based on RFC 5053 Section 5.4.4
 
-use std::collections::HashMap;
 use rand::Rng;
-use crate::tables::{self, Q, V0, V1};
+use std::collections::HashMap;
+use crate::tables::{self, Q};
 
 /// Parameters for the robust soliton distribution
 pub struct DistributionParams {
@@ -45,7 +45,7 @@ impl DegreeGenerator {
     }
 
     /// Build the degree distribution according to Table 1 in RFC 5053
-    fn build_distribution(params: &DistributionParams) -> Vec<(usize, f64)> {
+    fn build_distribution(_params: &DistributionParams) -> Vec<(usize, f64)> {
         let mut dist = Vec::new();
         let mut cum_prob = 0.0;
 
@@ -137,11 +137,16 @@ mod tests {
             *counts.entry(degree).or_insert(0) += 1;
         }
 
-        // Verify we get all expected degrees
-        assert!(counts.contains_key(&1));
-        assert!(counts.contains_key(&2));
-        assert!(counts.contains_key(&3));
-        assert!(counts.contains_key(&4));
+        // Verify we get some expected degrees
+        let expected_degrees = [1, 2, 3, 4, 5, 10, 11, 40];
+        for degree in expected_degrees.iter() {
+            assert!(counts.contains_key(degree));
+        }
+
+        // Verify all generated degrees are within the expected set
+        for (degree, _) in counts.iter() {
+            assert!(expected_degrees.contains(degree));
+        }
     }
 
     #[test]
