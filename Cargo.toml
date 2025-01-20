@@ -1,0 +1,32 @@
+[package]
+name = "fountainflow"
+version = "0.1.0"
+edition = "2021"
+description = "A high-performance, cross-platform file transfer tool using fountain codes"
+authors = ["Sadhguru Archives"]
+license = "Apache-2.0"
+repository = "https://github.com/sadhguru-archives/fountainflow"
+readme = "README.md"
+keywords = ["file-transfer", "fountain-codes", "networking", "udp", "cross-platform"]
+categories = ["command-line-utilities", "network-programming"]
+
+[dependencies]
+tokio = { version = "1.35", features = ["full"] }
+clap = { version = "4.4", features = ["derive"] }
+rand = "0.8"
+blake3 = "1.5"
+bytes = "1.5"
+log = "0.4"
+env_logger = "0.10"
+indicatif = "0.17"
+thiserror = "1.0"
+anyhow = "1.0"
+
+[dev-dependencies]
+tokio-test = "0.4"
+test-log = "0.2"
+tempfile = "3.8"
+
+[[bin]]
+name = "fountainflow"
+path = "src/main.rs"
