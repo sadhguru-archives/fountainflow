@@ -35,7 +35,7 @@ cargo install fountainflow
 Or build from source:
 
 ```bash
-git clone https://github.com/swamikevala/fountainflow.git
+git clone https://github.com/sadhguru-archives/fountainflow.git
 cd fountainflow
 cargo build --release
 ```
