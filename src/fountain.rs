@@ -2,6 +2,7 @@
 
 use rand::Rng;
 use thiserror::Error;
+use crate::distribution::DegreeGenerator;
 
 #[derive(Error, Debug)]
 pub enum FountainError {
@@ -48,8 +49,10 @@ pub struct Encoder {
     blocks: Vec<Vec<u8>>,
     /// Size of each block
     block_size: usize,
-    /// Random number generator
-    rng: rand::rngs::ThreadRng,
+    /// Degree generator for Raptor code distribution
+    degree_gen: DegreeGenerator,
+    /// Current block sequence number
+    sequence: u32,
 }
 
 impl Encoder {
@@ -60,7 +63,9 @@ impl Encoder {
     /// * `block_size` - Size of each block
     ///
     /// # Errors
-    /// Returns error if block_size is 0 or larger than data length
+    /// Returns error if:
+    /// - block_size is 0 or larger than data length
+    /// - number of blocks is outside valid range (4..=256)
     pub fn new(data: &[u8], block_size: usize) -> Result<Self, FountainError> {
         if block_size == 0 {
             return Err(FountainError::InvalidBlockSize(block_size));
@@ -69,25 +74,35 @@ impl Encoder {
             return Err(FountainError::InvalidBlockSize(block_size));
         }
 
-        let blocks = data
+        let blocks: Vec<Vec<u8>> = data
             .chunks(block_size)
             .map(|chunk| chunk.to_vec())
             .collect();
 
+        // RFC 5053 requires K (number of source blocks) to be in range 4..=256
+        let k = blocks.len();
+        if k < 4 || k > 256 {
+            return Err(FountainError::InvalidBlockSize(block_size));
+        }
+
         Ok(Self {
             blocks,
             block_size,
-            rng: rand::thread_rng(),
+            degree_gen: DegreeGenerator::new(k),
+            sequence: 0,
         })
     }
 
-    /// Generate the next encoded block
-    pub fn next_block(&mut self) -> Block {
-        let degree = self.get_degree();
-        let seed = self.rng.gen();
+    /// Generate the next encoded block following RFC 5053 Section 5.4.4.4
+    pub fn next_block(&mut self) -> Result<Block, FountainError> {
+        // Generate triple (d, a, b) for current sequence number
+        let triple = self.degree_gen.generate_triple(self.blocks.len(), self.sequence)
+            .ok_or_else(|| FountainError::EncodingError("Invalid block count".to_string()))?;
         
-        // Select random source blocks based on degree
-        let selected_blocks = self.select_blocks(seed, degree);
+        let (degree, a, b) = triple;
+        
+        // Select source blocks based on triple
+        let selected_blocks = self.select_blocks(degree, a, b);
         
         // XOR the selected blocks together
         let mut data = vec![0u8; self.block_size];
@@ -97,23 +112,29 @@ impl Encoder {
             }
         }
 
-        Block::new(data, seed, degree)
-    }
-
-    /// Get a degree from the Robust Soliton distribution
-    fn get_degree(&self) -> usize {
-        // Simplified version - will be replaced with proper Robust Soliton
-        self.rng.gen_range(1..=self.blocks.len())
-    }
-
-    /// Select source blocks based on seed and degree
-    fn select_blocks(&self, seed: u32, degree: usize) -> Vec<&Vec<u8>> {
-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed as u64);
-        let mut indices: Vec<usize> = (0..self.blocks.len()).collect();
-        indices.shuffle(&mut rng);
-        indices.truncate(degree);
+        // Create block and increment sequence
+        let block = Block::new(data, self.sequence, degree);
+        self.sequence += 1;
         
-        indices.iter().map(|&i| &self.blocks[i]).collect()
+        Ok(block)
+    }
+
+    /// Select source blocks based on triple values from RFC 5053 Section 5.4.4.4
+    fn select_blocks(&self, degree: usize, a: u32, b: u32) -> Vec<&Vec<u8>> {
+        let mut result = Vec::with_capacity(degree);
+        let k = self.blocks.len();
+        
+        // First block
+        let mut index = (b as usize) % k;
+        result.push(&self.blocks[index]);
+
+        // Subsequent blocks
+        for _ in 1..degree {
+            index = ((index + (a as usize)) % k) as usize;
+            result.push(&self.blocks[index]);
+        }
+        
+        result
     }
 }
 
@@ -123,14 +144,17 @@ mod tests {
 
     #[test]
     fn test_encoder_creation() {
+        // Test valid block count (4 blocks)
         let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         let encoder = Encoder::new(&data, 2).unwrap();
         assert_eq!(encoder.blocks.len(), 4);
         assert_eq!(encoder.block_size, 2);
+        assert_eq!(encoder.sequence, 0);
     }
 
     #[test]
-    fn test_invalid_block_size() {
+    fn test_invalid_parameters() {
+        // Test invalid block size
         let data = vec![1, 2, 3, 4];
         assert!(matches!(
             Encoder::new(&data, 0),
@@ -140,15 +164,50 @@ mod tests {
             Encoder::new(&data, 5),
             Err(FountainError::InvalidBlockSize(5))
         ));
+
+        // Test invalid block count (K < 4)
+        let data = vec![1, 2, 3];
+        assert!(matches!(
+            Encoder::new(&data, 1),
+            Err(FountainError::InvalidBlockSize(1))
+        ));
+
+        // Test invalid block count (K > 256)
+        let data = vec![0; 1024];
+        assert!(matches!(
+            Encoder::new(&data, 2),
+            Err(FountainError::InvalidBlockSize(2))
+        ));
     }
 
     #[test]
     fn test_block_generation() {
-        let data = vec![1, 2, 3, 4];
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
         let mut encoder = Encoder::new(&data, 2).unwrap();
         
-        let block = encoder.next_block();
+        // Test first block
+        let block = encoder.next_block().unwrap();
         assert_eq!(block.data().len(), 2);
-        assert!(block.degree() >= 1 && block.degree() <= 2);
+        assert!(block.degree() >= 1 && block.degree() <= 40); // Valid degree range
+        assert_eq!(block.seed(), 0); // First sequence number
+
+        // Test sequence progression
+        let block2 = encoder.next_block().unwrap();
+        assert_eq!(block2.seed(), 1); // Second sequence number
+    }
+
+    #[test]
+    fn test_deterministic_generation() {
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8];
+        let mut encoder1 = Encoder::new(&data, 2).unwrap();
+        let mut encoder2 = Encoder::new(&data, 2).unwrap();
+
+        // Same sequence number should produce identical blocks
+        let block1 = encoder1.next_block().unwrap();
+        let block2 = encoder2.next_block().unwrap();
+
+        assert_eq!(block1.data(), block2.data());
+        assert_eq!(block1.degree(), block2.degree());
+        assert_eq!(block1.seed(), block2.seed());
     }
 }
